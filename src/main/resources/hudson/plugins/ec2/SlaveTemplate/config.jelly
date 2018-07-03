@@ -39,6 +39,8 @@ THE SOFTWARE.
     <f:textbox />
   </f:entry>
 
+<f:validateButton title="${%Check Launch Template}" progress="${%Checking...}" method="validateLaunchTemplate" with="useInstanceProfileForCredentials,credentialsId,region,ec2endpoint,launchTemplate" />
+
   <f:entry title="${%Instance Type}" field="type">
     <f:enum>${it.name()}</f:enum>
   </f:entry>

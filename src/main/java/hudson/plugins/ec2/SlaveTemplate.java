@@ -54,6 +54,56 @@ import hudson.plugins.ec2.util.DeviceMappingParser;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 
+
+
+class LaunchTabletHelper {
+
+    private List<LaunchTemplateVersion> templateVersions;
+
+    LaunchTabletHelper(AmazonEC2 ec2, String launchTemplateName) throws AmazonClientException {
+        DescribeLaunchTemplateVersionsRequest request = new DescribeLaunchTemplateVersionsRequest().withLaunchTemplateName(launchTemplateName);
+        DescribeLaunchTemplateVersionsResult result = ec2.describeLaunchTemplateVersions(request);
+        this.templateVersions = result.getLaunchTemplateVersions();
+    }
+
+    String  getID() {
+        if (! templateVersions.isEmpty())
+            return templateVersions.get(0).getLaunchTemplateId();
+        else
+            return null;
+    }
+
+    LaunchTemplateVersion getLatest() {
+
+        long latestVersionNumber=0;
+        LaunchTemplateVersion latestVersion = null;
+
+        for (LaunchTemplateVersion ltv : this.templateVersions)
+            if (ltv.getVersionNumber() > latestVersionNumber) {
+                latestVersion=ltv;
+                latestVersionNumber = ltv.getVersionNumber();
+            }
+        return latestVersion;        
+
+    }
+    LaunchTemplateVersion getDefault() {
+        for (LaunchTemplateVersion ltv : this.templateVersions)
+            if (ltv.isDefaultVersion()) {
+                return ltv;
+            }
+        return null;
+    }
+
+    LaunchTemplateVersion Version(Long version) {
+        for (LaunchTemplateVersion ltv : this.templateVersions)
+            if (ltv.getVersionNumber() == version) {
+                return ltv;
+            }
+        return null;
+    }
+
+}
+
 /**
  * Template of {@link EC2AbstractSlave} to launch.
  *
@@ -64,7 +114,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public String ami;
 
-    public String launchTemplate;
+    public final String launchTemplate;
 
     public final String description;
 
@@ -145,6 +195,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     @Deprecated
     public transient String slaveCommandPrefix;
+
 
     @DataBoundConstructor
     public SlaveTemplate(String ami, String zone, SpotConfiguration spotConfig, String securityGroups, String remoteFS,
@@ -375,7 +426,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     }
 
     public String getLaunchTemplate() {
-        return ami;
+        return launchTemplate;
     }
 
     public void setAmi(String ami) {
@@ -936,7 +987,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     protected EC2SpotSlave newSpotSlave(SpotInstanceRequest sir, String name) throws FormException, IOException {
         return new EC2SpotSlave(name, sir.getSpotInstanceRequestId(), description, remoteFS, getNumExecutors(), mode, initScript,
                 tmpDir, labels, remoteAdmin, jvmopts, idleTerminationMinutes, EC2Tag.fromAmazonTags(sir.getTags()), parent.name,
-                usePrivateDnsName, getLaunchTimeout(), amiType);
+                usePrivateDnsName, getLaunchTimeout(), amiType, getLaunchTemplate());
     }
 
     /**
@@ -1149,6 +1200,27 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             }else{
                 return FormValidation.error(Messages.General_MissingPermission());
             }
+        }
+        public FormValidation doValidateLaunchTemplate(@QueryParameter boolean useInstanceProfileForCredentials,
+                @QueryParameter String credentialsId, @QueryParameter String ec2endpoint,
+                @QueryParameter String region, final @QueryParameter String launchTemplate) throws IOException {
+            AWSCredentialsProvider credentialsProvider = EC2Cloud.createCredentialsProvider(useInstanceProfileForCredentials,
+                    credentialsId);
+            AmazonEC2 ec2;
+            if (region != null) {
+                ec2 = EC2Cloud.connect(credentialsProvider, AmazonEC2Cloud.getEc2EndpointUrl(region));
+            } else {
+                ec2 = EC2Cloud.connect(credentialsProvider, new URL(ec2endpoint));
+            }
+            if (ec2 != null) {
+                try {
+                    LaunchTabletHelper lth = new LaunchTabletHelper(ec2,launchTemplate);
+                    return FormValidation.ok(lth.getID() +" Latest: " + lth.getLatest().getVersionNumber().toString() + " Default: " + lth.getDefault().getVersionNumber().toString());                 
+                } catch (AmazonClientException e) {
+                    return FormValidation.error(e.getMessage());
+                }
+            } else
+                return FormValidation.ok(); // can't test
         }
 
         /***
