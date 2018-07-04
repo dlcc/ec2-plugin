@@ -69,9 +69,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final String launchTemplate;
 
-    public final String launchTemplateVersion;
-
-    public final boolean specifyLaunchTemplateVersion;
+    public final LaunchTemplateVersionsConfiguration specifyLaunchTemplateVersion;
 
     public final boolean useUnlimitedBursting;
 
@@ -164,7 +162,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
             boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
             String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp, String launchTemplate,
-            String launchTemplateVersion, String launchTemplateVersion, boolean specifyLaunchTemplateVersion, boolean useUnlimitedBursting, boolean specifyLaunchTemplateVersion) {
+            LaunchTemplateVersionsConfiguration specifyLaunchTemplateVersion, boolean useUnlimitedBursting) {
 
         if(StringUtils.isNotBlank(remoteAdmin) || StringUtils.isNotBlank(jvmopts) || StringUtils.isNotBlank(tmpDir)){
             LOGGER.log(Level.FINE, "As remoteAdmin, jvmopts or tmpDir is not blank, we must ensure the user has RUN_SCRIPTS rights.");
@@ -176,7 +174,6 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
         this.ami = ami;
         this.launchTemplate = launchTemplate;
-        this.launchTemplateVersion  = launchTemplateVersion;
         this.specifyLaunchTemplateVersion = specifyLaunchTemplateVersion;
         this.useUnlimitedBursting = useUnlimitedBursting;
         this.zone = zone;
@@ -235,7 +232,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         this(ami, zone, spotConfig, securityGroups, remoteFS, type, ebsOptimized, labelString, mode, description, initScript,
             tmpDir, userData, numExecutors, remoteAdmin, amiType, jvmopts, stopOnTerminate, subnetId, tags,
             idleTerminationMinutes, usePrivateDnsName, instanceCapStr, iamInstanceProfile, false, useEphemeralDevices,
-            useDedicatedTenancy, launchTimeoutStr, associatePublicIp, customDeviceMapping, connectBySSHProcess, connectUsingPublicIp, "");
+            useDedicatedTenancy, launchTimeoutStr, associatePublicIp, customDeviceMapping, connectBySSHProcess, connectUsingPublicIp,
+            "", null, false);
 
     }
 
@@ -371,7 +369,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             return null;
         return Collections.unmodifiableList(tags);
     }
-    https://www.zavvi.com/blu-ray/terminator-2-remastered-4k-ultra-hd/11515066.html?affil=thggpsad&switchcurrency=GBP&shippingcountry=GB&thg_ppc_campaign=71700000010292982&gclid=Cj0KCQjwvezZBRDkARIsADKQyPnUuWVn2n4RN0g8fgChttps://www.zavvi.com/blu-ray/terminator-2-remastered-4k-ultra-hd/11515066.html?affil=thggpsad&switchcurrency=GBP&shippingcountry=GB&thg_ppc_campaign=71700000010292982&gclid=Cj0KCQjwvezZBRDkARIsADKQyPnUuWVn2n4RN0g8fgChttps://www.zavvi.com/blu-ray/terminator-2-remastered-4k-ultra-hd/11515066.html?affil=thggpsad&switchcurrency=GBP&shippingcountry=GB&thg_ppc_campaign=71700000010292982&gclid=Cj0KCQjwvezZBRDkARIsADKQyPnUuWVn2n4RN0g8fgCEa_963prU09eKbv3s6P7R8kr9O6rmVge4GxQaAtYKEALw_wcB&gclsrc=aw.ds&dclid=COeYmrmAhNwCFTEy0wodersJ6QEa_963prU09eKbv3s6P7R8kr9O6rmVge4GxQaAtYKEALw_wcB&gclsrc=aw.ds&dclid=COeYmrmAhNwCFTEy0wodersJ6QEa_963prU09eKbv3s6P7R8kr9O6rmVge4GxQaAtYKEALw_wcB&gclsrc=aw.ds&dclid=COeYmrmAhNwCFTEy0wodersJ6Q
+    
     public String getidleTerminationMinutes() {
         return idleTerminationMinutes;
     }
@@ -397,13 +395,11 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     }
 
     public String getLaunchTemplateVersion() {
-        return launchTemplateVersion;
+        if (specifyLaunchTemplateVersion == null)
+            return null;
+        return specifyLaunchTemplateVersion.getLaunchTemplateVersion();
     }
-
-    public boolean isSpecifyLaunchTemplateVersion() {
-        return specifyLaunchTemplateVersion;
-    }
-
+    
     public boolean isUseUnlimitedBursting() {
         return useUnlimitedBursting;
     }
