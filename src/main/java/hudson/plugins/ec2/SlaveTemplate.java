@@ -51,58 +51,11 @@ import hudson.model.*;
 import hudson.model.Descriptor.FormException;
 import hudson.model.labels.LabelAtom;
 import hudson.plugins.ec2.util.DeviceMappingParser;
+import hudson.plugins.ec2.util.LaunchTemplateHelper;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 
 
-
-class LaunchTabletHelper {
-
-    private List<LaunchTemplateVersion> templateVersions;
-
-    LaunchTabletHelper(AmazonEC2 ec2, String launchTemplateName) throws AmazonClientException {
-        DescribeLaunchTemplateVersionsRequest request = new DescribeLaunchTemplateVersionsRequest().withLaunchTemplateName(launchTemplateName);
-        DescribeLaunchTemplateVersionsResult result = ec2.describeLaunchTemplateVersions(request);
-        this.templateVersions = result.getLaunchTemplateVersions();
-    }
-
-    String  getID() {
-        if (! templateVersions.isEmpty())
-            return templateVersions.get(0).getLaunchTemplateId();
-        else
-            return null;
-    }
-
-    LaunchTemplateVersion getLatest() {
-
-        long latestVersionNumber=0;
-        LaunchTemplateVersion latestVersion = null;
-
-        for (LaunchTemplateVersion ltv : this.templateVersions)
-            if (ltv.getVersionNumber() > latestVersionNumber) {
-                latestVersion=ltv;
-                latestVersionNumber = ltv.getVersionNumber();
-            }
-        return latestVersion;        
-
-    }
-    LaunchTemplateVersion getDefault() {
-        for (LaunchTemplateVersion ltv : this.templateVersions)
-            if (ltv.isDefaultVersion()) {
-                return ltv;
-            }
-        return null;
-    }
-
-    LaunchTemplateVersion Version(Long version) {
-        for (LaunchTemplateVersion ltv : this.templateVersions)
-            if (ltv.getVersionNumber() == version) {
-                return ltv;
-            }
-        return null;
-    }
-
-}
 
 /**
  * Template of {@link EC2AbstractSlave} to launch.
@@ -115,6 +68,12 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     public String ami;
 
     public final String launchTemplate;
+
+    public final String launchTemplateVersion;
+
+    public final boolean specifyLaunchTemplateVersion;
+
+    public final boolean useUnlimitedBursting;
 
     public final String description;
 
@@ -204,7 +163,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             boolean stopOnTerminate, String subnetId, List<EC2Tag> tags, String idleTerminationMinutes,
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
             boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
-            String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp, String launchTemplate) {
+            String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp, String launchTemplate,
+            String launchTemplateVersion, String launchTemplateVersion, boolean specifyLaunchTemplateVersion, boolean useUnlimitedBursting, boolean specifyLaunchTemplateVersion) {
 
         if(StringUtils.isNotBlank(remoteAdmin) || StringUtils.isNotBlank(jvmopts) || StringUtils.isNotBlank(tmpDir)){
             LOGGER.log(Level.FINE, "As remoteAdmin, jvmopts or tmpDir is not blank, we must ensure the user has RUN_SCRIPTS rights.");
@@ -216,6 +176,9 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
         this.ami = ami;
         this.launchTemplate = launchTemplate;
+        this.launchTemplateVersion  = launchTemplateVersion;
+        this.specifyLaunchTemplateVersion = specifyLaunchTemplateVersion;
+        this.useUnlimitedBursting = useUnlimitedBursting;
         this.zone = zone;
         this.spotConfig = spotConfig;
         this.securityGroups = securityGroups;
@@ -408,7 +371,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             return null;
         return Collections.unmodifiableList(tags);
     }
-
+    https://www.zavvi.com/blu-ray/terminator-2-remastered-4k-ultra-hd/11515066.html?affil=thggpsad&switchcurrency=GBP&shippingcountry=GB&thg_ppc_campaign=71700000010292982&gclid=Cj0KCQjwvezZBRDkARIsADKQyPnUuWVn2n4RN0g8fgChttps://www.zavvi.com/blu-ray/terminator-2-remastered-4k-ultra-hd/11515066.html?affil=thggpsad&switchcurrency=GBP&shippingcountry=GB&thg_ppc_campaign=71700000010292982&gclid=Cj0KCQjwvezZBRDkARIsADKQyPnUuWVn2n4RN0g8fgChttps://www.zavvi.com/blu-ray/terminator-2-remastered-4k-ultra-hd/11515066.html?affil=thggpsad&switchcurrency=GBP&shippingcountry=GB&thg_ppc_campaign=71700000010292982&gclid=Cj0KCQjwvezZBRDkARIsADKQyPnUuWVn2n4RN0g8fgCEa_963prU09eKbv3s6P7R8kr9O6rmVge4GxQaAtYKEALw_wcB&gclsrc=aw.ds&dclid=COeYmrmAhNwCFTEy0wodersJ6QEa_963prU09eKbv3s6P7R8kr9O6rmVge4GxQaAtYKEALw_wcB&gclsrc=aw.ds&dclid=COeYmrmAhNwCFTEy0wodersJ6QEa_963prU09eKbv3s6P7R8kr9O6rmVge4GxQaAtYKEALw_wcB&gclsrc=aw.ds&dclid=COeYmrmAhNwCFTEy0wodersJ6Q
     public String getidleTerminationMinutes() {
         return idleTerminationMinutes;
     }
@@ -425,12 +388,24 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         return ami;
     }
 
+    public void setAmi(String ami) {
+        this.ami = ami;
+    }
+
     public String getLaunchTemplate() {
         return launchTemplate;
     }
 
-    public void setAmi(String ami) {
-        this.ami = ami;
+    public String getLaunchTemplateVersion() {
+        return launchTemplateVersion;
+    }
+
+    public boolean isSpecifyLaunchTemplateVersion() {
+        return specifyLaunchTemplateVersion;
+    }
+
+    public boolean isUseUnlimitedBursting() {
+        return useUnlimitedBursting;
     }
 
     public AMITypeData getAmiType() {
@@ -1214,7 +1189,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             }
             if (ec2 != null) {
                 try {
-                    LaunchTabletHelper lth = new LaunchTabletHelper(ec2,launchTemplate);
+                    LaunchTemplateHelper lth = new LaunchTemplateHelper(ec2,launchTemplate);
                     return FormValidation.ok(lth.getID() +" Latest: " + lth.getLatest().getVersionNumber().toString() + " Default: " + lth.getDefault().getVersionNumber().toString());                 
                 } catch (AmazonClientException e) {
                     return FormValidation.error(e.getMessage());
@@ -1270,6 +1245,18 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             }
 
             return FormValidation.ok();
+        }
+
+        public FormValidation doCheckLaunchTemplateVersion(@QueryParameter String value) {
+            if (value == null || value.trim().isEmpty())
+                return FormValidation.ok();
+            try {
+                Long val = Long.parseLong(value);
+                if (val > 0)
+                    return FormValidation.ok();
+            } catch (NumberFormatException nfe) {
+            }
+            return FormValidation.error("Launch template version must be > 0 (or blank for default)");
         }
 
         public FormValidation doCheckIdleTerminationMinutes(@QueryParameter String value) {
