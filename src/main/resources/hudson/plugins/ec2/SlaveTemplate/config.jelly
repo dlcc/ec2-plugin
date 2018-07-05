@@ -41,13 +41,9 @@ THE SOFTWARE.
 
   <f:validateButton title="${%Check Launch Template}" progress="${%Checking...}" method="validateLaunchTemplate" with="useInstanceProfileForCredentials,credentialsId,region,ec2endpoint,launchTemplate" />
 
-
-  <f:optionalBlock name="specifyLaunchTemplateVersion" title="Specify Launch Template Version (Leave 'Launch Template Version' blank for default)" checked="${instance.specifyLaunchTemplateVersion != null}">
-
-    <f:entry title="${%Launch Template Version}" field="launchTemplateVersion">
-      <f:textbox />
-    </f:entry>
-  </f:optionalBlock>
+  <f:entry title="${%Launch Template Version}" field="launchTemplateVersion">
+    <f:textbox default="$Latest"/>
+  </f:entry>
 
   <f:entry title="${%Instance Type}" field="type">
     <f:enum>${it.name()}</f:enum>

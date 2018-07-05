@@ -69,7 +69,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final String launchTemplate;
 
-    public final LaunchTemplateVersionsConfiguration specifyLaunchTemplateVersion;
+    public final String launchTemplateVersion;
 
     public final boolean useUnlimitedBursting;
 
@@ -162,7 +162,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
             boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
             String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp, String launchTemplate,
-            LaunchTemplateVersionsConfiguration specifyLaunchTemplateVersion, boolean useUnlimitedBursting) {
+            String launchTemplateVersion, boolean useUnlimitedBursting) {
 
         if(StringUtils.isNotBlank(remoteAdmin) || StringUtils.isNotBlank(jvmopts) || StringUtils.isNotBlank(tmpDir)){
             LOGGER.log(Level.FINE, "As remoteAdmin, jvmopts or tmpDir is not blank, we must ensure the user has RUN_SCRIPTS rights.");
@@ -174,7 +174,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
         this.ami = ami;
         this.launchTemplate = launchTemplate;
-        this.specifyLaunchTemplateVersion = specifyLaunchTemplateVersion;
+        this.launchTemplateVersion = launchTemplateVersion;
         this.useUnlimitedBursting = useUnlimitedBursting;
         this.zone = zone;
         this.spotConfig = spotConfig;
@@ -233,7 +233,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             tmpDir, userData, numExecutors, remoteAdmin, amiType, jvmopts, stopOnTerminate, subnetId, tags,
             idleTerminationMinutes, usePrivateDnsName, instanceCapStr, iamInstanceProfile, false, useEphemeralDevices,
             useDedicatedTenancy, launchTimeoutStr, associatePublicIp, customDeviceMapping, connectBySSHProcess, connectUsingPublicIp,
-            "", null, false);
+            "", "", false);
 
     }
 
@@ -395,11 +395,9 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     }
 
     public String getLaunchTemplateVersion() {
-        if (specifyLaunchTemplateVersion == null)
-            return null;
-        return specifyLaunchTemplateVersion.getLaunchTemplateVersion();
+        return launchTemplateVersion;
     }
-    
+
     public boolean isUseUnlimitedBursting() {
         return useUnlimitedBursting;
     }
@@ -525,10 +523,14 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             RunInstancesRequest riRequest = new RunInstancesRequest(ami, 1, 1);
             InstanceNetworkInterfaceSpecification net = new InstanceNetworkInterfaceSpecification();
 
-            riRequest.setEbsOptimized(ebsOptimized);
+            if (ebsOptimized) 
+                riRequest.setEbsOptimized(ebsOptimized);
 
             if (StringUtils.isNotBlank(getLaunchTemplate())) {
-                riRequest.setLaunchTemplate(new LaunchTemplateSpecification().withLaunchTemplateId(getLaunchTemplate()));
+                String localLaunchTemplateVersion = getLaunchTemplateVersion().equals("") ? "$Default" : getLaunchTemplateVersion(); 
+                LaunchTemplateSpecification lts = new LaunchTemplateSpecification().withLaunchTemplateName(getLaunchTemplate()).withVersion(localLaunchTemplateVersion);
+                riRequest.setLaunchTemplate(lts);
+                logProvisionInfo(logger, "Using Template: " + riRequest.getLaunchTemplate().getLaunchTemplateName());
             }
 
             setupRootDevice(riRequest.getBlockDeviceMappings());
@@ -541,13 +543,11 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             if(stopOnTerminate){
                 riRequest.setInstanceInitiatedShutdownBehavior(ShutdownBehavior.Stop);
                 logProvisionInfo(logger, "Setting Instance Initiated Shutdown Behavior : ShutdownBehavior.Stop");
-            }else{
-                riRequest.setInstanceInitiatedShutdownBehavior(ShutdownBehavior.Terminate);
-                 logProvisionInfo(logger, "Setting Instance Initiated Shutdown Behavior : ShutdownBehavior.Terminate");
             }
 
             List<Filter> diFilters = new ArrayList<Filter>();
-            diFilters.add(new Filter("image-id").withValues(ami));
+            if (StringUtils.isNotBlank(ami))
+                diFilters.add(new Filter("image-id").withValues(ami));
 
             if (StringUtils.isNotBlank(getZone())) {
                 Placement placement = new Placement(getZone());
@@ -585,14 +585,17 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
                 }
             } else {
                 /* No subnet: we can use standard security groups by name */
-                riRequest.setSecurityGroups(securityGroupSet);
                 if (!securityGroupSet.isEmpty()) {
+                    riRequest.setSecurityGroups(securityGroupSet);
                     diFilters.add(new Filter("instance.group-name").withValues(securityGroupSet));
                 }
             }
 
-            String userDataString = Base64.encodeBase64String(userData.getBytes(StandardCharsets.UTF_8));
-            riRequest.setUserData(userDataString);
+            if (StringUtils.isNotBlank(userData)) {
+                String userDataString = Base64.encodeBase64String(userData.getBytes(StandardCharsets.UTF_8));
+                riRequest.setUserData(userDataString);
+            }
+
             riRequest.setKeyName(keyPair.getKeyName());
             diFilters.add(new Filter("key-name").withValues(keyPair.getKeyName()));
             riRequest.setInstanceType(type.toString());
@@ -636,8 +639,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             if (!provisionOptions.contains(ProvisionOptions.FORCE_CREATE)) {
                 reservationLoop:
                 for (Reservation reservation : diResult.getReservations()) {
-                    for (Instance instance : reservation.getInstances()) {
-                        if (checkInstance(logger, instance, requiredLabel, ec2Node)) {
+                    for (Instance instance : reservation.getInstances()) {                    
+                    if (checkInstance(logger, instance, requiredLabel, ec2Node)) {
                             existingInstance = instance;
                             logProvision(logger, "Found existing instance: " + existingInstance + ((ec2Node[0] != null) ? (" node: " + ec2Node[0].getInstanceId()) : ""));
                             break reservationLoop;
@@ -665,6 +668,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
                 }
 
                 // Have to create a new instance
+                logProvisionInfo(logger, "Template set: " + riRequest.getLaunchTemplate());
+
                 Instance inst = ec2.runInstances(riRequest).getReservation().getInstances().get(0);
 
                 logProvisionInfo(logger, "No existing instance found - created new instance: " + inst);
@@ -1244,7 +1249,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         }
 
         public FormValidation doCheckLaunchTemplateVersion(@QueryParameter String value) {
-            if (value == null || value.trim().isEmpty())
+            if (value == null || value.trim().isEmpty() || value.equals("$Latest") || value.equals("$Default")  )
                 return FormValidation.ok();
             try {
                 Long val = Long.parseLong(value);
@@ -1252,7 +1257,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
                     return FormValidation.ok();
             } catch (NumberFormatException nfe) {
             }
-            return FormValidation.error("Launch template version must be > 0 (or blank for default)");
+            return FormValidation.error("Launch template version must be > 0 or $Default or $Latest (or blank)");
         }
 
         public FormValidation doCheckIdleTerminationMinutes(@QueryParameter String value) {
