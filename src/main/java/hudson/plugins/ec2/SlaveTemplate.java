@@ -520,7 +520,12 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             KeyPair keyPair = getKeyPair(ec2);
 
-            RunInstancesRequest riRequest = new RunInstancesRequest(ami, 1, 1);
+            RunInstancesRequest riRequest = new RunInstancesRequest().withMaxCount(1).withMinCount(1);
+            
+            if (StringUtils.isNotBlank(ami)) {
+                riRequest.setImageId(ami);
+            }
+
             InstanceNetworkInterfaceSpecification net = new InstanceNetworkInterfaceSpecification();
 
             if (ebsOptimized) 
