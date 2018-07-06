@@ -29,6 +29,7 @@ import java.util.logging.Logger;
 import javax.servlet.ServletException;
 
 import hudson.util.Secret;
+import jenkins.YesNoMaybe;
 import jenkins.model.Jenkins;
 import jenkins.slaves.iterators.api.NodeIterator;
 
@@ -85,7 +86,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final InstanceType type;
 
-    public final boolean ebsOptimized;
+    public final YesNoDelegate ebsOptimizedChoice;
 
     public final String labels;
 
@@ -156,7 +157,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     @DataBoundConstructor
     public SlaveTemplate(String ami, String zone, SpotConfiguration spotConfig, String securityGroups, String remoteFS,
-            InstanceType type, boolean ebsOptimized, String labelString, Node.Mode mode, String description, String initScript,
+            InstanceType type, YesNoDelegate ebsOptimizedChoice, String labelString, Node.Mode mode, String description, String initScript,
             String tmpDir, String userData, String numExecutors, String remoteAdmin, AMITypeData amiType, String jvmopts,
             boolean stopOnTerminate, String subnetId, List<EC2Tag> tags, String idleTerminationMinutes,
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
@@ -182,7 +183,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         this.remoteFS = remoteFS;
         this.amiType = amiType;
         this.type = type;
-        this.ebsOptimized = ebsOptimized;
+        this.ebsOptimizedChoice = ebsOptimizedChoice;
         this.labels = Util.fixNull(labelString);
         this.mode = mode;
         this.description = description;
@@ -229,7 +230,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
             boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
             String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp) {
-        this(ami, zone, spotConfig, securityGroups, remoteFS, type, ebsOptimized, labelString, mode, description, initScript,
+        this(ami, zone, spotConfig, securityGroups, remoteFS, type, ebsOptimized ? YesNoDelegate.YES : YesNoDelegate.NO, labelString, mode, description, initScript,
             tmpDir, userData, numExecutors, remoteAdmin, amiType, jvmopts, stopOnTerminate, subnetId, tags,
             idleTerminationMinutes, usePrivateDnsName, instanceCapStr, iamInstanceProfile, false, useEphemeralDevices,
             useDedicatedTenancy, launchTimeoutStr, associatePublicIp, customDeviceMapping, connectBySSHProcess, connectUsingPublicIp,
@@ -528,8 +529,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             InstanceNetworkInterfaceSpecification net = new InstanceNetworkInterfaceSpecification();
 
-            if (ebsOptimized) 
-                riRequest.setEbsOptimized(ebsOptimized);
+            if (ebsOptimizedChoice != YesNoDelegate.DELEGATE) 
+                riRequest.setEbsOptimized(ebsOptimizedChoice.toBoolean());
 
             if (StringUtils.isNotBlank(getLaunchTemplate())) {
                 String localLaunchTemplateVersion = getLaunchTemplateVersion().equals("") ? "$Default" : getLaunchTemplateVersion(); 
@@ -835,7 +836,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             launchSpecification.setImageId(ami);
             launchSpecification.setInstanceType(type);
-            launchSpecification.setEbsOptimized(ebsOptimized);
+            launchSpecification.setEbsOptimized(ebsOptimizedChoice.toBoolean());
 
             if (StringUtils.isNotBlank(getZone())) {
                 SpotPlacement placement = new SpotPlacement(getZone());
