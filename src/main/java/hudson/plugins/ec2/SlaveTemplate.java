@@ -29,6 +29,7 @@ import java.util.logging.Logger;
 import javax.servlet.ServletException;
 
 import hudson.util.Secret;
+import jenkins.YesNoMaybe;
 import jenkins.model.Jenkins;
 import jenkins.slaves.iterators.api.NodeIterator;
 
@@ -51,8 +52,12 @@ import hudson.model.*;
 import hudson.model.Descriptor.FormException;
 import hudson.model.labels.LabelAtom;
 import hudson.plugins.ec2.util.DeviceMappingParser;
+import hudson.plugins.ec2.util.LaunchTemplateHelper;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
+
+
+
 
 /**
  * Template of {@link EC2AbstractSlave} to launch.
@@ -64,6 +69,10 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public String ami;
 
+    public final String launchTemplate;
+
+    public final String launchTemplateVersion;
+
     public final String description;
 
     public final String zone;
@@ -74,9 +83,15 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final String remoteFS;
 
-    public final InstanceType type;
+    public final TypeConfiguration typeConfig;
 
-    public final boolean ebsOptimized;
+    public final YesNoDelegate ebsOptimizedChoice;
+
+    public final YesNoDelegate stopOnTerminateChoice;
+
+    public final YesNoDelegate useUnlimitedBurstingChoice;
+
+    public final YesNoDelegate useDedicatedTenancyChoice;
 
     public final String labels;
 
@@ -98,17 +113,15 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final String idleTerminationMinutes;
 
+    public final boolean useEphemeralDevices;
+
     public final String iamInstanceProfile;
 
     public final boolean deleteRootOnTermination;
 
-    public final boolean useEphemeralDevices;
-
     public final String customDeviceMapping;
 
     public int instanceCap;
-
-    public final boolean stopOnTerminate;
 
     private final List<EC2Tag> tags;
 
@@ -117,8 +130,6 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     public final boolean associatePublicIp;
 
     protected transient EC2Cloud parent;
-
-    public final boolean useDedicatedTenancy;
 
     public AMITypeData amiType;
 
@@ -144,14 +155,16 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     @Deprecated
     public transient String slaveCommandPrefix;
 
+
     @DataBoundConstructor
     public SlaveTemplate(String ami, String zone, SpotConfiguration spotConfig, String securityGroups, String remoteFS,
-            InstanceType type, boolean ebsOptimized, String labelString, Node.Mode mode, String description, String initScript,
+            TypeConfiguration typeConfig, YesNoDelegate ebsOptimizedChoice, String labelString, Node.Mode mode, String description, String initScript,
             String tmpDir, String userData, String numExecutors, String remoteAdmin, AMITypeData amiType, String jvmopts,
-            boolean stopOnTerminate, String subnetId, List<EC2Tag> tags, String idleTerminationMinutes,
+            YesNoDelegate stopOnTerminateChoice, String subnetId, List<EC2Tag> tags, String idleTerminationMinutes,
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
-            boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
-            String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp) {
+            boolean useEphemeralDevices, YesNoDelegate useDedicatedTenancyChoice, String launchTimeoutStr, boolean associatePublicIp,
+            String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp, String launchTemplate,
+            String launchTemplateVersion, YesNoDelegate useUnlimitedBurstingChoice) {
 
         if(StringUtils.isNotBlank(remoteAdmin) || StringUtils.isNotBlank(jvmopts) || StringUtils.isNotBlank(tmpDir)){
             LOGGER.log(Level.FINE, "As remoteAdmin, jvmopts or tmpDir is not blank, we must ensure the user has RUN_SCRIPTS rights.");
@@ -162,13 +175,16 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         }
 
         this.ami = ami;
+        this.launchTemplate = launchTemplate;
+        this.launchTemplateVersion = launchTemplateVersion;
+        this.useUnlimitedBurstingChoice = useUnlimitedBurstingChoice;
         this.zone = zone;
         this.spotConfig = spotConfig;
         this.securityGroups = securityGroups;
         this.remoteFS = remoteFS;
         this.amiType = amiType;
-        this.type = type;
-        this.ebsOptimized = ebsOptimized;
+        this.typeConfig = typeConfig;
+        this.ebsOptimizedChoice = ebsOptimizedChoice;
         this.labels = Util.fixNull(labelString);
         this.mode = mode;
         this.description = description;
@@ -178,14 +194,15 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         this.numExecutors = Util.fixNull(numExecutors).trim();
         this.remoteAdmin = remoteAdmin;
         this.jvmopts = jvmopts;
-        this.stopOnTerminate = stopOnTerminate;
+        this.stopOnTerminateChoice = stopOnTerminateChoice;
+        this.useEphemeralDevices = useEphemeralDevices;
+        this.useDedicatedTenancyChoice=useDedicatedTenancyChoice;
         this.subnetId = subnetId;
         this.tags = tags;
         this.idleTerminationMinutes = idleTerminationMinutes;
         this.usePrivateDnsName = usePrivateDnsName;
         this.associatePublicIp = associatePublicIp;
         this.connectUsingPublicIp = connectUsingPublicIp;
-        this.useDedicatedTenancy = useDedicatedTenancy;
         this.connectBySSHProcess = connectBySSHProcess;
 
         if (null == instanceCapStr || instanceCapStr.isEmpty()) {
@@ -202,10 +219,23 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
         this.iamInstanceProfile = iamInstanceProfile;
         this.deleteRootOnTermination = deleteRootOnTermination;
-        this.useEphemeralDevices = useEphemeralDevices;
         this.customDeviceMapping = customDeviceMapping;
 
         readResolve(); // initialize
+    }
+
+    public SlaveTemplate(String ami, String zone, SpotConfiguration spotConfig, String securityGroups, String remoteFS,
+            InstanceType type, boolean ebsOptimized, String labelString, Node.Mode mode, String description, String initScript,
+            String tmpDir, String userData, String numExecutors, String remoteAdmin, AMITypeData amiType, String jvmopts,
+            boolean stopOnTerminate, String subnetId, List<EC2Tag> tags, String idleTerminationMinutes,
+            boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
+            boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
+            String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp) {
+        this(ami, zone, spotConfig, securityGroups, remoteFS, new TypeConfiguration(type), YesNoDelegate.fromBoolean(ebsOptimized), labelString, mode, description, initScript,
+            tmpDir, userData, numExecutors, remoteAdmin, amiType, jvmopts, YesNoDelegate.fromBoolean(stopOnTerminate), subnetId, tags,
+            idleTerminationMinutes, usePrivateDnsName, instanceCapStr, iamInstanceProfile, false, useEphemeralDevices,
+            YesNoDelegate.fromBoolean(useDedicatedTenancy), launchTimeoutStr, associatePublicIp, customDeviceMapping, connectBySSHProcess, connectUsingPublicIp,
+            "", "", YesNoDelegate.NO);
     }
 
     public SlaveTemplate(String ami, String zone, SpotConfiguration spotConfig, String securityGroups, String remoteFS,
@@ -294,7 +324,10 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         try {
             return Integer.parseInt(numExecutors);
         } catch (NumberFormatException e) {
-            return EC2AbstractSlave.toNumExecutors(type);
+            if (typeConfig != null)
+                return EC2AbstractSlave.toNumExecutors(typeConfig.type);
+            else
+                return 1;
         }
     }
 
@@ -340,13 +373,13 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             return null;
         return Collections.unmodifiableList(tags);
     }
-
+    
     public String getidleTerminationMinutes() {
         return idleTerminationMinutes;
     }
 
-    public boolean getUseDedicatedTenancy() {
-        return useDedicatedTenancy;
+    public YesNoDelegate getUseDedicatedTenancyChoice() {
+        return useDedicatedTenancyChoice;
     }
 
     public Set<LabelAtom> getLabelSet() {
@@ -359,6 +392,18 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public void setAmi(String ami) {
         this.ami = ami;
+    }
+
+    public String getLaunchTemplate() {
+        return launchTemplate;
+    }
+
+    public String getLaunchTemplateVersion() {
+        return launchTemplateVersion;
+    }
+
+    public YesNoDelegate isUseUnlimitedBurstingChoice() {
+        return useUnlimitedBurstingChoice;
     }
 
     public AMITypeData getAmiType() {
@@ -479,35 +524,51 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             KeyPair keyPair = getKeyPair(ec2);
 
-            RunInstancesRequest riRequest = new RunInstancesRequest(ami, 1, 1);
+            RunInstancesRequest riRequest = new RunInstancesRequest().withMaxCount(1).withMinCount(1);
+            
+            if (StringUtils.isNotBlank(ami)) {
+                riRequest.setImageId(ami);
+            }
+
             InstanceNetworkInterfaceSpecification net = new InstanceNetworkInterfaceSpecification();
 
-            riRequest.setEbsOptimized(ebsOptimized);
+            if (ebsOptimizedChoice.isNotDelegate()) 
+                riRequest.setEbsOptimized(ebsOptimizedChoice.toBoolean());
+
+            if (StringUtils.isNotBlank(getLaunchTemplate())) {
+                String localLaunchTemplateVersion = getLaunchTemplateVersion().equals("") ? "$Default" : getLaunchTemplateVersion(); 
+                LaunchTemplateSpecification lts = new LaunchTemplateSpecification().withLaunchTemplateName(getLaunchTemplate()).withVersion(localLaunchTemplateVersion);
+                riRequest.setLaunchTemplate(lts);
+                logProvisionInfo(logger, "Using Template: " + riRequest.getLaunchTemplate().getLaunchTemplateName());
+            }
 
             setupRootDevice(riRequest.getBlockDeviceMappings());
+
             if (useEphemeralDevices) {
                 setupEphemeralDeviceMapping(riRequest.getBlockDeviceMappings());
             } else {
                 setupCustomDeviceMapping(riRequest.getBlockDeviceMappings());
             }
 
-            if(stopOnTerminate){
-                riRequest.setInstanceInitiatedShutdownBehavior(ShutdownBehavior.Stop);
-                logProvisionInfo(logger, "Setting Instance Initiated Shutdown Behavior : ShutdownBehavior.Stop");
-            }else{
-                riRequest.setInstanceInitiatedShutdownBehavior(ShutdownBehavior.Terminate);
-                 logProvisionInfo(logger, "Setting Instance Initiated Shutdown Behavior : ShutdownBehavior.Terminate");
+            if(stopOnTerminateChoice.isNotDelegate()){
+                riRequest.setInstanceInitiatedShutdownBehavior(stopOnTerminateChoice.toBoolean() ? ShutdownBehavior.Stop : ShutdownBehavior.Terminate);
+                logProvisionInfo(logger, "Setting Instance Initiated Shutdown Behavior : " +  (stopOnTerminateChoice.toBoolean() ? "ShutdownBehavior.Stop" : "ShutdownBehavior.Terminate"));
+            } else {
+
             }
 
             List<Filter> diFilters = new ArrayList<Filter>();
-            diFilters.add(new Filter("image-id").withValues(ami));
+            if (StringUtils.isNotBlank(ami))
+                diFilters.add(new Filter("image-id").withValues(ami));
 
             if (StringUtils.isNotBlank(getZone())) {
-                Placement placement = new Placement(getZone());
-                if (getUseDedicatedTenancy()) {
-                    placement.setTenancy("dedicated");
+
+                if (useDedicatedTenancyChoice.isNotDelegate()) {
+                    Placement placement = new Placement(getZone());
+                    placement.setTenancy(useDedicatedTenancyChoice.toBoolean() ? "dedicated" : "default");
+                    riRequest.setPlacement(placement);
                 }
-                riRequest.setPlacement(placement);
+
                 diFilters.add(new Filter("availability-zone").withValues(getZone()));
             }
 
@@ -538,18 +599,23 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
                 }
             } else {
                 /* No subnet: we can use standard security groups by name */
-                riRequest.setSecurityGroups(securityGroupSet);
                 if (!securityGroupSet.isEmpty()) {
+                    riRequest.setSecurityGroups(securityGroupSet);
                     diFilters.add(new Filter("instance.group-name").withValues(securityGroupSet));
                 }
             }
 
-            String userDataString = Base64.encodeBase64String(userData.getBytes(StandardCharsets.UTF_8));
-            riRequest.setUserData(userDataString);
+            if (StringUtils.isNotBlank(userData)) {
+                String userDataString = Base64.encodeBase64String(userData.getBytes(StandardCharsets.UTF_8));
+                riRequest.setUserData(userDataString);
+            }
+
             riRequest.setKeyName(keyPair.getKeyName());
             diFilters.add(new Filter("key-name").withValues(keyPair.getKeyName()));
-            riRequest.setInstanceType(type.toString());
-            diFilters.add(new Filter("instance-type").withValues(type.toString()));
+            if (typeConfig != null) {
+                riRequest.setInstanceType(typeConfig.type.toString());
+                diFilters.add(new Filter("instance-type").withValues(typeConfig.type.toString()));
+            }
 
             if (getAssociatePublicIp()) {
                 net.setAssociatePublicIpAddress(true);
@@ -589,8 +655,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             if (!provisionOptions.contains(ProvisionOptions.FORCE_CREATE)) {
                 reservationLoop:
                 for (Reservation reservation : diResult.getReservations()) {
-                    for (Instance instance : reservation.getInstances()) {
-                        if (checkInstance(logger, instance, requiredLabel, ec2Node)) {
+                    for (Instance instance : reservation.getInstances()) {                    
+                    if (checkInstance(logger, instance, requiredLabel, ec2Node)) {
                             existingInstance = instance;
                             logProvision(logger, "Found existing instance: " + existingInstance + ((ec2Node[0] != null) ? (" node: " + ec2Node[0].getInstanceId()) : ""));
                             break reservationLoop;
@@ -618,6 +684,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
                 }
 
                 // Have to create a new instance
+                logProvisionInfo(logger, "Template set: " + riRequest.getLaunchTemplate());
+
                 Instance inst = ec2.runInstances(riRequest).getReservation().getInstances().get(0);
 
                 logProvisionInfo(logger, "No existing instance found - created new instance: " + inst);
@@ -777,8 +845,10 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             InstanceNetworkInterfaceSpecification net = new InstanceNetworkInterfaceSpecification();
 
             launchSpecification.setImageId(ami);
-            launchSpecification.setInstanceType(type);
-            launchSpecification.setEbsOptimized(ebsOptimized);
+            if (typeConfig != null)
+                launchSpecification.setInstanceType(typeConfig.type);
+            if (ebsOptimizedChoice.isNotDelegate())
+                launchSpecification.setEbsOptimized(ebsOptimizedChoice.toBoolean());
 
             if (StringUtils.isNotBlank(getZone())) {
                 SpotPlacement placement = new SpotPlacement(getZone());
@@ -824,7 +894,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             launchSpecification.setUserData(userDataString);
             launchSpecification.setKeyName(keyPair.getKeyName());
-            launchSpecification.setInstanceType(type.toString());
+ //           launchSpecification.setInstanceType(type.toString());
 
             if (getAssociatePublicIp()) {
                 net.setAssociatePublicIpAddress(true);
@@ -903,15 +973,15 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     protected EC2OndemandSlave newOndemandSlave(Instance inst) throws FormException, IOException {
         return new EC2OndemandSlave(inst.getInstanceId(), description, remoteFS, getNumExecutors(), labels, mode, initScript,
-                tmpDir, remoteAdmin, jvmopts, stopOnTerminate, idleTerminationMinutes, inst.getPublicDnsName(),
+                tmpDir, remoteAdmin, jvmopts, stopOnTerminateChoice.toBoolean(), idleTerminationMinutes, inst.getPublicDnsName(),
                 inst.getPrivateDnsName(), EC2Tag.fromAmazonTags(inst.getTags()), parent.name, usePrivateDnsName,
-                useDedicatedTenancy, getLaunchTimeout(), amiType);
+                useDedicatedTenancyChoice.toBoolean(), getLaunchTimeout(), amiType, getLaunchTemplate());
     }
 
     protected EC2SpotSlave newSpotSlave(SpotInstanceRequest sir, String name) throws FormException, IOException {
         return new EC2SpotSlave(name, sir.getSpotInstanceRequestId(), description, remoteFS, getNumExecutors(), mode, initScript,
                 tmpDir, labels, remoteAdmin, jvmopts, idleTerminationMinutes, EC2Tag.fromAmazonTags(sir.getTags()), parent.name,
-                usePrivateDnsName, getLaunchTimeout(), amiType);
+                usePrivateDnsName, getLaunchTimeout(), amiType, getLaunchTemplate());
     }
 
     /**
@@ -1050,6 +1120,12 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         return launchTimeout <= 0 ? Integer.MAX_VALUE : launchTimeout;
     }
 
+    public InstanceType getType() {
+        if (this.typeConfig == null)
+            return null;
+        return typeConfig.type;
+    }
+
     public String getLaunchTimeoutStr() {
         if (launchTimeout == Integer.MAX_VALUE) {
             return "";
@@ -1125,6 +1201,27 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
                 return FormValidation.error(Messages.General_MissingPermission());
             }
         }
+        public FormValidation doValidateLaunchTemplate(@QueryParameter boolean useInstanceProfileForCredentials,
+                @QueryParameter String credentialsId, @QueryParameter String ec2endpoint,
+                @QueryParameter String region, final @QueryParameter String launchTemplate) throws IOException {
+            AWSCredentialsProvider credentialsProvider = EC2Cloud.createCredentialsProvider(useInstanceProfileForCredentials,
+                    credentialsId);
+            AmazonEC2 ec2;
+            if (region != null) {
+                ec2 = EC2Cloud.connect(credentialsProvider, AmazonEC2Cloud.getEc2EndpointUrl(region));
+            } else {
+                ec2 = EC2Cloud.connect(credentialsProvider, new URL(ec2endpoint));
+            }
+            if (ec2 != null) {
+                try {
+                    LaunchTemplateHelper lth = new LaunchTemplateHelper(ec2,launchTemplate);
+                    return FormValidation.ok(lth.getID() +" Latest: " + lth.getLatest().getVersionNumber().toString() + " Default: " + lth.getDefault().getVersionNumber().toString());                 
+                } catch (AmazonClientException e) {
+                    return FormValidation.error(e.getMessage());
+                }
+            } else
+                return FormValidation.ok(); // can't test
+        }
 
         /***
          * Check that the AMI requested is available in the cloud and can be used.
@@ -1173,6 +1270,18 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             }
 
             return FormValidation.ok();
+        }
+
+        public FormValidation doCheckLaunchTemplateVersion(@QueryParameter String value) {
+            if (value == null || value.trim().isEmpty() || value.equals("$Latest") || value.equals("$Default")  )
+                return FormValidation.ok();
+            try {
+                Long val = Long.parseLong(value);
+                if (val > 0)
+                    return FormValidation.ok();
+            } catch (NumberFormatException nfe) {
+            }
+            return FormValidation.error("Launch template version must be > 0 or $Default or $Latest (or blank)");
         }
 
         public FormValidation doCheckIdleTerminationMinutes(@QueryParameter String value) {

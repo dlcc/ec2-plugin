@@ -35,12 +35,28 @@ THE SOFTWARE.
 
   <f:validateButton title="${%Check AMI}" progress="${%Checking...}" method="validateAmi" with="useInstanceProfileForCredentials,credentialsId,region,ec2endpoint,ami" />
 
+  <f:entry title="${%Launch Template}" field="launchTemplate">
+    <f:textbox />
+  </f:entry>
+
+  <f:validateButton title="${%Check Launch Template}" progress="${%Checking...}" method="validateLaunchTemplate" with="useInstanceProfileForCredentials,credentialsId,region,ec2endpoint,launchTemplate" />
+
+  <f:entry title="${%Launch Template Version}" field="launchTemplateVersion">
+    <f:textbox default="$Latest"/>
+  </f:entry>
+
+<f:optionalBlock name="typeConfig" title="Specify Instance Type" checked="${instance == null || instance.typeConfig != null}" >
   <f:entry title="${%Instance Type}" field="type">
     <f:enum>${it.name()}</f:enum>
   </f:entry>
+</f:optionalBlock >
 
-  <f:entry title="${%EBS Optimized}" field="ebsOptimized">
-    <f:checkbox />
+  <f:entry title="${%Use Unlimited Bursting}" field="useUnlimitedBurstingChoice">
+    <f:enum default="DELEGATE" >${it.getDescription()}</f:enum>
+  </f:entry>
+
+    <f:entry title="${%EBS Optimized}" field="ebsOptimizedChoice">
+    <f:enum  default="DELEGATE" >${it.getDescription()}</f:enum>
   </f:entry>
 
   <f:entry title="${%Availability Zone}" field="zone">
@@ -104,16 +120,16 @@ THE SOFTWARE.
       <f:textbox/>
     </f:entry>
 
-    <f:entry title="${%Stop/Disconnect on Idle Timeout}" field="stopOnTerminate">
-      <f:checkbox />
+    <f:entry title="${%Stop/Disconnect on Idle Timeout}" field="stopOnTerminateChoice">
+      <f:enum default="DELEGATE" >${it.getDescription()}</f:enum>
     </f:entry>
 
     <f:entry title="${%Subnet ID for VPC}" field="subnetId">
        <f:textbox />
     </f:entry>
-
-    <f:entry title="${%Use dedicated tenancy}" field="useDedicatedTenancy">
-      <f:checkbox />
+  
+    <f:entry title="${%Use dedicated tenancy}" field="useDedicatedTenancyChoice">
+      <f:enum default="NO" >${it.getDescription()}</f:enum>
     </f:entry>
 
     <f:entry title="${%Tags}" description="${%EC2 Tag/Value Pairs}">
