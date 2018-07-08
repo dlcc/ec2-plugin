@@ -107,7 +107,7 @@ public class EC2Step extends Step {
                     List<SlaveTemplate> templates = ((AmazonEC2Cloud) cList).getTemplates();
                     for (SlaveTemplate template : templates) {
                         for (String labelList : template.labels.split(" ")) {
-                            r.add(labelList + "  (AMI: " + template.getAmi() + ", REGION: " + ((AmazonEC2Cloud) cList).getRegion() + ", TYPE: " + template.type.name() + ")", labelList);
+                            r.add(labelList + "  (AMI: " + template.getAmi() + ", REGION: " + ((AmazonEC2Cloud) cList).getRegion() + ", TYPE: " + template.getType().name() + ")", labelList);
                         }
                     }
                 }

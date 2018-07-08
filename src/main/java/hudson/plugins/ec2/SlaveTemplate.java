@@ -58,6 +58,7 @@ import hudson.util.ListBoxModel;
 
 
 
+
 /**
  * Template of {@link EC2AbstractSlave} to launch.
  *
@@ -72,8 +73,6 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final String launchTemplateVersion;
 
-    public final boolean useUnlimitedBursting;
-
     public final String description;
 
     public final String zone;
@@ -84,9 +83,15 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final String remoteFS;
 
-    public final InstanceType type;
+    public final TypeConfiguration typeConfig;
 
     public final YesNoDelegate ebsOptimizedChoice;
+
+    public final YesNoDelegate stopOnTerminateChoice;
+
+    public final YesNoDelegate useUnlimitedBurstingChoice;
+
+    public final YesNoDelegate useDedicatedTenancyChoice;
 
     public final String labels;
 
@@ -108,17 +113,15 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public final String idleTerminationMinutes;
 
+    public final boolean useEphemeralDevices;
+
     public final String iamInstanceProfile;
 
     public final boolean deleteRootOnTermination;
 
-    public final boolean useEphemeralDevices;
-
     public final String customDeviceMapping;
 
     public int instanceCap;
-
-    public final boolean stopOnTerminate;
 
     private final List<EC2Tag> tags;
 
@@ -127,8 +130,6 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
     public final boolean associatePublicIp;
 
     protected transient EC2Cloud parent;
-
-    public final boolean useDedicatedTenancy;
 
     public AMITypeData amiType;
 
@@ -157,13 +158,13 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     @DataBoundConstructor
     public SlaveTemplate(String ami, String zone, SpotConfiguration spotConfig, String securityGroups, String remoteFS,
-            InstanceType type, YesNoDelegate ebsOptimizedChoice, String labelString, Node.Mode mode, String description, String initScript,
+            TypeConfiguration typeConfig, YesNoDelegate ebsOptimizedChoice, String labelString, Node.Mode mode, String description, String initScript,
             String tmpDir, String userData, String numExecutors, String remoteAdmin, AMITypeData amiType, String jvmopts,
-            boolean stopOnTerminate, String subnetId, List<EC2Tag> tags, String idleTerminationMinutes,
+            YesNoDelegate stopOnTerminateChoice, String subnetId, List<EC2Tag> tags, String idleTerminationMinutes,
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
-            boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
+            boolean useEphemeralDevices, YesNoDelegate useDedicatedTenancyChoice, String launchTimeoutStr, boolean associatePublicIp,
             String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp, String launchTemplate,
-            String launchTemplateVersion, boolean useUnlimitedBursting) {
+            String launchTemplateVersion, YesNoDelegate useUnlimitedBurstingChoice) {
 
         if(StringUtils.isNotBlank(remoteAdmin) || StringUtils.isNotBlank(jvmopts) || StringUtils.isNotBlank(tmpDir)){
             LOGGER.log(Level.FINE, "As remoteAdmin, jvmopts or tmpDir is not blank, we must ensure the user has RUN_SCRIPTS rights.");
@@ -176,13 +177,13 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         this.ami = ami;
         this.launchTemplate = launchTemplate;
         this.launchTemplateVersion = launchTemplateVersion;
-        this.useUnlimitedBursting = useUnlimitedBursting;
+        this.useUnlimitedBurstingChoice = useUnlimitedBurstingChoice;
         this.zone = zone;
         this.spotConfig = spotConfig;
         this.securityGroups = securityGroups;
         this.remoteFS = remoteFS;
         this.amiType = amiType;
-        this.type = type;
+        this.typeConfig = typeConfig;
         this.ebsOptimizedChoice = ebsOptimizedChoice;
         this.labels = Util.fixNull(labelString);
         this.mode = mode;
@@ -193,14 +194,15 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         this.numExecutors = Util.fixNull(numExecutors).trim();
         this.remoteAdmin = remoteAdmin;
         this.jvmopts = jvmopts;
-        this.stopOnTerminate = stopOnTerminate;
+        this.stopOnTerminateChoice = stopOnTerminateChoice;
+        this.useEphemeralDevices = useEphemeralDevices;
+        this.useDedicatedTenancyChoice=useDedicatedTenancyChoice;
         this.subnetId = subnetId;
         this.tags = tags;
         this.idleTerminationMinutes = idleTerminationMinutes;
         this.usePrivateDnsName = usePrivateDnsName;
         this.associatePublicIp = associatePublicIp;
         this.connectUsingPublicIp = connectUsingPublicIp;
-        this.useDedicatedTenancy = useDedicatedTenancy;
         this.connectBySSHProcess = connectBySSHProcess;
 
         if (null == instanceCapStr || instanceCapStr.isEmpty()) {
@@ -217,7 +219,6 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
         this.iamInstanceProfile = iamInstanceProfile;
         this.deleteRootOnTermination = deleteRootOnTermination;
-        this.useEphemeralDevices = useEphemeralDevices;
         this.customDeviceMapping = customDeviceMapping;
 
         readResolve(); // initialize
@@ -230,12 +231,11 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             boolean usePrivateDnsName, String instanceCapStr, String iamInstanceProfile, boolean deleteRootOnTermination,
             boolean useEphemeralDevices, boolean useDedicatedTenancy, String launchTimeoutStr, boolean associatePublicIp,
             String customDeviceMapping, boolean connectBySSHProcess, boolean connectUsingPublicIp) {
-        this(ami, zone, spotConfig, securityGroups, remoteFS, type, ebsOptimized ? YesNoDelegate.YES : YesNoDelegate.NO, labelString, mode, description, initScript,
-            tmpDir, userData, numExecutors, remoteAdmin, amiType, jvmopts, stopOnTerminate, subnetId, tags,
+        this(ami, zone, spotConfig, securityGroups, remoteFS, new TypeConfiguration(type), YesNoDelegate.fromBoolean(ebsOptimized), labelString, mode, description, initScript,
+            tmpDir, userData, numExecutors, remoteAdmin, amiType, jvmopts, YesNoDelegate.fromBoolean(stopOnTerminate), subnetId, tags,
             idleTerminationMinutes, usePrivateDnsName, instanceCapStr, iamInstanceProfile, false, useEphemeralDevices,
-            useDedicatedTenancy, launchTimeoutStr, associatePublicIp, customDeviceMapping, connectBySSHProcess, connectUsingPublicIp,
-            "", "", false);
-
+            YesNoDelegate.fromBoolean(useDedicatedTenancy), launchTimeoutStr, associatePublicIp, customDeviceMapping, connectBySSHProcess, connectUsingPublicIp,
+            "", "", YesNoDelegate.NO);
     }
 
     public SlaveTemplate(String ami, String zone, SpotConfiguration spotConfig, String securityGroups, String remoteFS,
@@ -324,7 +324,10 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         try {
             return Integer.parseInt(numExecutors);
         } catch (NumberFormatException e) {
-            return EC2AbstractSlave.toNumExecutors(type);
+            if (typeConfig != null)
+                return EC2AbstractSlave.toNumExecutors(typeConfig.type);
+            else
+                return 1;
         }
     }
 
@@ -375,8 +378,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         return idleTerminationMinutes;
     }
 
-    public boolean getUseDedicatedTenancy() {
-        return useDedicatedTenancy;
+    public YesNoDelegate getUseDedicatedTenancyChoice() {
+        return useDedicatedTenancyChoice;
     }
 
     public Set<LabelAtom> getLabelSet() {
@@ -399,8 +402,8 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
         return launchTemplateVersion;
     }
 
-    public boolean isUseUnlimitedBursting() {
-        return useUnlimitedBursting;
+    public YesNoDelegate isUseUnlimitedBurstingChoice() {
+        return useUnlimitedBurstingChoice;
     }
 
     public AMITypeData getAmiType() {
@@ -529,7 +532,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             InstanceNetworkInterfaceSpecification net = new InstanceNetworkInterfaceSpecification();
 
-            if (ebsOptimizedChoice != YesNoDelegate.DELEGATE) 
+            if (ebsOptimizedChoice.isNotDelegate()) 
                 riRequest.setEbsOptimized(ebsOptimizedChoice.toBoolean());
 
             if (StringUtils.isNotBlank(getLaunchTemplate())) {
@@ -540,15 +543,18 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             }
 
             setupRootDevice(riRequest.getBlockDeviceMappings());
+
             if (useEphemeralDevices) {
                 setupEphemeralDeviceMapping(riRequest.getBlockDeviceMappings());
             } else {
                 setupCustomDeviceMapping(riRequest.getBlockDeviceMappings());
             }
 
-            if(stopOnTerminate){
-                riRequest.setInstanceInitiatedShutdownBehavior(ShutdownBehavior.Stop);
-                logProvisionInfo(logger, "Setting Instance Initiated Shutdown Behavior : ShutdownBehavior.Stop");
+            if(stopOnTerminateChoice.isNotDelegate()){
+                riRequest.setInstanceInitiatedShutdownBehavior(stopOnTerminateChoice.toBoolean() ? ShutdownBehavior.Stop : ShutdownBehavior.Terminate);
+                logProvisionInfo(logger, "Setting Instance Initiated Shutdown Behavior : " +  (stopOnTerminateChoice.toBoolean() ? "ShutdownBehavior.Stop" : "ShutdownBehavior.Terminate"));
+            } else {
+
             }
 
             List<Filter> diFilters = new ArrayList<Filter>();
@@ -556,11 +562,13 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
                 diFilters.add(new Filter("image-id").withValues(ami));
 
             if (StringUtils.isNotBlank(getZone())) {
-                Placement placement = new Placement(getZone());
-                if (getUseDedicatedTenancy()) {
-                    placement.setTenancy("dedicated");
+
+                if (useDedicatedTenancyChoice.isNotDelegate()) {
+                    Placement placement = new Placement(getZone());
+                    placement.setTenancy(useDedicatedTenancyChoice.toBoolean() ? "dedicated" : "default");
+                    riRequest.setPlacement(placement);
                 }
-                riRequest.setPlacement(placement);
+
                 diFilters.add(new Filter("availability-zone").withValues(getZone()));
             }
 
@@ -604,8 +612,10 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             riRequest.setKeyName(keyPair.getKeyName());
             diFilters.add(new Filter("key-name").withValues(keyPair.getKeyName()));
-            riRequest.setInstanceType(type.toString());
-            diFilters.add(new Filter("instance-type").withValues(type.toString()));
+            if (typeConfig != null) {
+                riRequest.setInstanceType(typeConfig.type.toString());
+                diFilters.add(new Filter("instance-type").withValues(typeConfig.type.toString()));
+            }
 
             if (getAssociatePublicIp()) {
                 net.setAssociatePublicIpAddress(true);
@@ -835,8 +845,10 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
             InstanceNetworkInterfaceSpecification net = new InstanceNetworkInterfaceSpecification();
 
             launchSpecification.setImageId(ami);
-            launchSpecification.setInstanceType(type);
-            launchSpecification.setEbsOptimized(ebsOptimizedChoice.toBoolean());
+            if (typeConfig != null)
+                launchSpecification.setInstanceType(typeConfig.type);
+            if (ebsOptimizedChoice.isNotDelegate())
+                launchSpecification.setEbsOptimized(ebsOptimizedChoice.toBoolean());
 
             if (StringUtils.isNotBlank(getZone())) {
                 SpotPlacement placement = new SpotPlacement(getZone());
@@ -882,7 +894,7 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
             launchSpecification.setUserData(userDataString);
             launchSpecification.setKeyName(keyPair.getKeyName());
-            launchSpecification.setInstanceType(type.toString());
+ //           launchSpecification.setInstanceType(type.toString());
 
             if (getAssociatePublicIp()) {
                 net.setAssociatePublicIpAddress(true);
@@ -961,9 +973,9 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     protected EC2OndemandSlave newOndemandSlave(Instance inst) throws FormException, IOException {
         return new EC2OndemandSlave(inst.getInstanceId(), description, remoteFS, getNumExecutors(), labels, mode, initScript,
-                tmpDir, remoteAdmin, jvmopts, stopOnTerminate, idleTerminationMinutes, inst.getPublicDnsName(),
+                tmpDir, remoteAdmin, jvmopts, stopOnTerminateChoice.toBoolean(), idleTerminationMinutes, inst.getPublicDnsName(),
                 inst.getPrivateDnsName(), EC2Tag.fromAmazonTags(inst.getTags()), parent.name, usePrivateDnsName,
-                useDedicatedTenancy, getLaunchTimeout(), amiType, getLaunchTemplate());
+                useDedicatedTenancyChoice.toBoolean(), getLaunchTimeout(), amiType, getLaunchTemplate());
     }
 
     protected EC2SpotSlave newSpotSlave(SpotInstanceRequest sir, String name) throws FormException, IOException {
@@ -1106,6 +1118,12 @@ public class SlaveTemplate implements Describable<SlaveTemplate> {
 
     public int getLaunchTimeout() {
         return launchTimeout <= 0 ? Integer.MAX_VALUE : launchTimeout;
+    }
+
+    public InstanceType getType() {
+        if (this.typeConfig == null)
+            return null;
+        return typeConfig.type;
     }
 
     public String getLaunchTimeoutStr() {
