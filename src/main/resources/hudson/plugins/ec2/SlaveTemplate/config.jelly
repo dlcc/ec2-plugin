@@ -121,15 +121,15 @@ THE SOFTWARE.
     </f:entry>
 
     <f:entry title="${%Stop/Disconnect on Idle Timeout}" field="stopOnTerminateChoice">
-      <f:enum default="DEEGATE" >${it.getDescription()}</f:enum>
+      <f:enum default="DELEGATE" >${it.getDescription()}</f:enum>
     </f:entry>
 
     <f:entry title="${%Subnet ID for VPC}" field="subnetId">
        <f:textbox />
     </f:entry>
-
-    <f:entry title="${%Use dedicated tenancy}" field="useDedicatedTenancy">
-      <f:checkbox />
+  
+    <f:entry title="${%Use dedicated tenancy}" field="useDedicatedTenancyChoice">
+      <f:enum default="NO" >${it.getDescription()}</f:enum>
     </f:entry>
 
     <f:entry title="${%Tags}" description="${%EC2 Tag/Value Pairs}">
